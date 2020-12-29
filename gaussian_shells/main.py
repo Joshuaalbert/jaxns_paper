@@ -49,7 +49,10 @@ def plot_log_likelihood():
 
     for i, (mu, radii, rotation) in enumerate(zip(mu, radii, rotation)):
         y = mu[:, None] + rotation @ jnp.diag(radii) @ x
-        ax.plot(y[0, :], y[1, :], c=plt.cm.jet(i / K), lw=0.5)
+        # per ellipsoid colouring
+        # ax.plot(y[0, :], y[1, :], c=plt.cm.jet(i / K), lw=0.5)
+        # same ellipsoid colouring
+        ax.plot(y[0, :], y[1, :], c='orange', lw=0.5)
 
     add_colorbar_to_axes(ax, 'bone_r', vmin=0., vmax=jnp.max(jnp.exp(lik)),
                          label=r"$\mathcal{L}(\theta_1, \theta_2)$")
