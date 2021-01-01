@@ -27,10 +27,11 @@ def main():
     names = ['Dynesty', 'PolyChord', 'MultiNEST', 'JAXNS']
     colors = ['blue','green','red','black']
     markers = ['o','^', 'v', '*']
+    linestyles = ['solid', 'dotted', 'dashed', 'dashdot']
 
     fig, axs = plt.subplots(2,1, sharex=True, figsize=(5,5))
     for i, name in enumerate(names):
-        axs[0].plot(ndims[a], run_times[a,i], c=colors[i], marker=markers[i], label=name)
+        axs[0].plot(ndims[a], run_times[a,i], c=colors[i], marker=markers[i], ls=linestyles[i], label=name)
         if name == 'JAXNS':
             alt_settings = [5, 6]
             select = [list(ndims).index(j) for j in alt_settings]
@@ -49,7 +50,7 @@ def main():
                   Affine2D().translate(0.05, 0.0) + axs[1].transData]
     for i, name in enumerate(names):
         axs[1].errorbar(ndims[a], logZs[a,i] - true_logZs[a], logZerrs[a,i], c=colors[i], marker=markers[i],
-                     transform=transforms[i], label=name)
+                     transform=transforms[i], ls=linestyles[i], label=name)
         if name == 'JAXNS':
             alt_settings = [5,6]
             select = [list(ndims).index(j) for j in alt_settings]

@@ -27,10 +27,11 @@ def main():
     names = ['Dynesty', 'PolyChord', 'MultiNEST', 'JAXNS']
     colors = ['blue','green','red','black']
     markers = ['o','^', 'v', '*']
+    linestyles = ['solid', 'dotted', 'dashed', 'dashdot']
 
     fig, axs = plt.subplots(2,1, sharex=True, figsize=(5,5))
     for i, name in enumerate(names):
-        axs[0].plot(ndims[a], run_times[a,i], c=colors[i], marker=markers[i], label=name)
+        axs[0].plot(ndims[a], run_times[a,i], c=colors[i], marker=markers[i], label=name, ls=linestyles[i])
     axs[0].set_yscale('log')
     axs[0].set_ylabel('Run time [s]')
     axs[0].grid()
@@ -44,7 +45,7 @@ def main():
                   Affine2D().translate(0.1, 0.0) + axs[1].transData]
     for i, name in enumerate(names):
         # plt.plot(ndims, logZs[:,i] - true_logZs, c=colors[i], marker=markers[i], label=name)
-        axs[1].errorbar(ndims[a], logZs[a,i] - true_logZs[a], logZerrs[a,i], c=colors[i], marker=markers[i],
+        axs[1].errorbar(ndims[a], logZs[a,i] - true_logZs[a], logZerrs[a,i], c=colors[i], marker=markers[i], ls=linestyles[i],
                      transform=transforms[i], label=name)
     axs[1].set_ylabel(r'$\Delta \log Z$')
     axs[1].set_xlabel('Prior dimension')
