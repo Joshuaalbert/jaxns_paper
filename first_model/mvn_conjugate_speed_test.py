@@ -11,6 +11,8 @@ from jax.config import config
 
 config.update("jax_enable_x64", True)
 
+num_calls = 0
+
 def np_log_normal(x, mean, cov):
     L = np.linalg.cholesky(cov)
     dx = x - mean
@@ -41,7 +43,7 @@ def main(ndims, num_live_points, do_dynesty, do_polychord, do_multinest, do_jaxn
     np_log_likelihood = lambda theta, **kwargs: np_log_normal(theta, data_mu, data_cov)
     jax_log_likelihood = lambda theta, **kwargs: jax_log_normal(theta, data_mu, data_cov)
 
-    def run_dynest():
+    def run_dynesty():
         try:
             import dynesty
         except:
@@ -52,7 +54,13 @@ def main(ndims, num_live_points, do_dynesty, do_polychord, do_multinest, do_jaxn
             """Transforms our unit cube samples `u` to a standard normal prior."""
             return ndtri(u) * np.sqrt(np.diag(prior_cov)) + prior_mu
 
-        sampler = dynesty.NestedSampler(np_log_likelihood,
+        def counting_function(params):
+            counting_function.calls += 1
+            return np_log_likelihood(params)
+
+        counting_function.calls = 0
+
+        sampler = dynesty.NestedSampler(counting_function,
                                         prior_transform,
                                         ndims,
                                         nlive=num_live_points,
@@ -72,7 +80,7 @@ def main(ndims, num_live_points, do_dynesty, do_polychord, do_multinest, do_jaxn
         print(f"Dynesty run time: {run_time}")
         print(f"Dynesty log(Z): {logZ} +- {logZerr}")
         print(f"Dynesty num_likelihood/ESS: {score}")
-        return run_time, logZ, logZerr
+        return run_time, logZ, logZerr, counting_function.calls
 
     def run_polychord():
         try:
@@ -89,6 +97,13 @@ def main(ndims, num_live_points, do_dynesty, do_polychord, do_multinest, do_jaxn
             logL = np_log_likelihood(theta)
             return logL, [np.sum(theta)]
 
+        def counting_function(params):
+            counting_function.calls += 1
+            return log_likelihood(params)
+
+        counting_function.calls = 0
+
+
         def prior(hypercube):
             """ Uniform prior from [-1,1]^D. """
             return ndtri(hypercube) * np.sqrt(np.diag(prior_cov)) + prior_mu
@@ -104,17 +119,19 @@ def main(ndims, num_live_points, do_dynesty, do_polychord, do_multinest, do_jaxn
         settings.num_repeats = 5*ndims
 
         t0 = default_timer()
-        output = pypolychord.run_polychord(log_likelihood, ndims, 1, settings, prior, dumper)
+        output = pypolychord.run_polychord(counting_function, ndims, 1, settings, prior, dumper)
         run_time = default_timer() - t0
         logZ, logZerr = output.logZ, output.logZerr
         score = 0.
+
+        num_likelihood_evaluations = output.nlike
 
         print("PolyChord result keys: {}".format(output))
 
         print(f"PolyChord run time: {run_time}")
         print(f"PolyChord log(Z): {logZ} +- {logZerr}")
         print(f"PolyChord num_likelihood/ESS: {score}")
-        return run_time, logZ, logZerr
+        return run_time, logZ, logZerr, counting_function.calls
 
     def run_multinest():
         ### multinest
@@ -133,9 +150,15 @@ def main(ndims, num_live_points, do_dynesty, do_polychord, do_multinest, do_jaxn
             """Transforms our unit cube samples `u` to a standard normal prior."""
             return ndtri(u) * np.sqrt(np.diag(prior_cov)) + prior_mu
 
+        def counting_function(params):
+            counting_function.calls += 1
+            return np_log_likelihood(params)
+
+        counting_function.calls = 0
+
         # run MultiNest
         t0 = default_timer()
-        result = solve(LogLikelihood=np_log_likelihood,
+        result = solve(LogLikelihood=counting_function,
                        Prior=prior_transform,
                        n_dims=ndims,
                        outputfiles_basename=prefix,
@@ -155,7 +178,7 @@ def main(ndims, num_live_points, do_dynesty, do_polychord, do_multinest, do_jaxn
         print(f"MultiNEST run time: {run_time}")
         print(f"MultiNEST log(Z): {logZ} +- {logZerr}")
         print(f"MultiNEST num_likelihood/ESS: {score}")
-        return run_time, logZ, logZerr
+        return run_time, logZ, logZerr, counting_function.calls
 
     def run_jaxns():
         try:
@@ -194,7 +217,7 @@ def main(ndims, num_live_points, do_dynesty, do_polychord, do_multinest, do_jaxn
             print(f"JAXNS log(Z): {logZ} +- {logZerr}")
             print(f"JAXNS num_likelihood/ESS: {score}")
 
-            return run_time, logZ, logZerr
+            return run_time, logZ, logZerr, results.num_samples
 
         return run_with_n(num_live_points)
 
@@ -209,14 +232,16 @@ def main(ndims, num_live_points, do_dynesty, do_polychord, do_multinest, do_jaxn
     run_data = []
     names.append("Dynesty")
     if do_dynesty:
-        run_data.append(run_dynest())
+        run_data.append(run_dynesty())
     else:
         try:
             run_data.append((np.load(file_name)['run_data'][0,0],
                              np.load(file_name)['run_data'][1,0],
-                             np.load(file_name)['run_data'][2,0]))
+                             np.load(file_name)['run_data'][2,0],
+                             np.load(file_name)['run_data'][3, 0]
+                            ))
         except:
-            run_data.append((np.nan, np.nan, np.nan))
+            run_data.append((np.nan, np.nan, np.nan, np.nan))
     names.append("PolyChord")
     if do_polychord:
         run_data.append(run_polychord())
@@ -224,9 +249,10 @@ def main(ndims, num_live_points, do_dynesty, do_polychord, do_multinest, do_jaxn
         try:
             run_data.append((np.load(file_name)['run_data'][0,1],
                              np.load(file_name)['run_data'][1,1],
-                             np.load(file_name)['run_data'][2,1]))
+                             np.load(file_name)['run_data'][2,1],
+                             np.load(file_name)['run_data'][3,1])  )
         except:
-            run_data.append((np.nan, np.nan, np.nan))
+            run_data.append((np.nan, np.nan, np.nan, np.nan))
     names.append("MultiNest")
     if do_multinest:
         run_data.append(run_multinest())
@@ -234,9 +260,11 @@ def main(ndims, num_live_points, do_dynesty, do_polychord, do_multinest, do_jaxn
         try:
             run_data.append((np.load(file_name)['run_data'][0,2],
                              np.load(file_name)['run_data'][1,2],
-                             np.load(file_name)['run_data'][2,2]))
+                             np.load(file_name)['run_data'][2,2],
+                             np.load(file_name)['run_data'][3,2],
+                             ))
         except:
-            run_data.append((np.nan, np.nan, np.nan))
+            run_data.append((np.nan, np.nan, np.nan, np.nan))
     names.append('JaxNS')
     if do_jaxns:
         run_data.append(run_jaxns())
@@ -244,11 +272,13 @@ def main(ndims, num_live_points, do_dynesty, do_polychord, do_multinest, do_jaxn
         try:
             run_data.append((np.load(file_name)['run_data'][0,3],
                              np.load(file_name)['run_data'][1,3],
-                             np.load(file_name)['run_data'][2,3]))
+                             np.load(file_name)['run_data'][2,3],
+                             np.load(file_name)['run_data'][3,3],
+                             ))
         except:
-            run_data.append((np.nan, np.nan, np.nan))
+            run_data.append((np.nan, np.nan, np.nan, np.nan))
     run_data = np.array(run_data)
-    run_time, logZ, logZerr = run_data.T
+    run_time, logZ, logZerr, nlik_calls = run_data.T
 
     np.savez(file_name, run_data=run_data.T, true_logZ = true_logZ)
 
@@ -258,6 +288,13 @@ def main(ndims, num_live_points, do_dynesty, do_polychord, do_multinest, do_jaxn
     plt.yscale('log')
     plt.savefig(f"{ndims}D_n{num_live_points}_speed_test.png")
     plt.savefig(f"{ndims}D_n{num_live_points}_speed_test.pdf")
+
+    plt.bar(names, run_time, fc="none", ec='black', lw=3.)
+    plt.xlabel("Nested sampling package")
+    plt.ylabel("Number of likelihood evaluations [1]")
+    plt.yscale('log')
+    plt.savefig(f"{ndims}D_n{num_live_points}_efficiency_test.png")
+    plt.savefig(f"{ndims}D_n{num_live_points}_efficiency_test.pdf")
     # plt.show()
 
 def add_args(parser):
